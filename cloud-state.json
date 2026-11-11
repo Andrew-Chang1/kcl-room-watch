@@ -1,0 +1,24 @@
+{
+  "target_seen": false,
+  "failures": 0,
+  "fail_alerted": false,
+  "seen": {},
+  "last_residences": [
+    [
+      "Angel Lane",
+      18
+    ],
+    [
+      "Atlas",
+      14
+    ],
+    [
+      "Battersea",
+      17
+    ],
+    [
+      "Canada Water",
+      20
+    ]
+  ]
+}
