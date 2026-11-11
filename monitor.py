@@ -32,7 +32,11 @@ STATE_FILE = HERE / os.environ.get("STATE_FILE", "state.json")
 LOG_FILE = HERE / "monitor.log"
 
 PORTAL = "https://accommodation.kcl.ac.uk/"
-TARGET = CONFIG.get("target", "Moonraker")
+# keyword to match in the portal -> name used in the alert email
+TARGETS = {
+    "Moonraker": "Moonraker Point",
+    "Stamford": "Stamford Street Apartments",
+}
 FAIL_ALERT_AFTER = 3  # consecutive failures before a "monitor is broken" email
 
 
@@ -141,7 +145,7 @@ def main():
             try:
                 send_email(
                     "KCL room monitor is failing",
-                    f"The Moonraker Point monitor has failed {state['failures']} times in a row.\n"
+                    f"The KCL residence monitor has failed {state['failures']} times in a row.\n"
                     f"Last error: {e!r}\n\nCheck {LOG_FILE}. Your portal password may have "
                     "changed, or the portal layout changed.",
                 )
@@ -154,28 +158,33 @@ def main():
     state["failures"] = 0
     state["fail_alerted"] = False
     summary = ", ".join(f"{n} ({c})" for n, c in residences) or "none listed"
-    hits = [t for t in room_types if TARGET.lower() in t.lower()] + [
-        f"{n} ({c} rooms)" for n, c in residences if TARGET.lower() in n.lower()
-    ]
-    if not hits and TARGET.lower() in body.lower():
-        hits = [f"'{TARGET}' mentioned on the room search page"]
+    seen = state.setdefault("seen", {})
+    status = []
+    for keyword, name in TARGETS.items():
+        k = keyword.lower()
+        hits = [t for t in room_types if k in t.lower()] + [
+            f"{n} ({c} rooms)" for n, c in residences if k in n.lower()
+        ]
+        if not hits and k in body.lower():
+            hits = [f"'{keyword}' mentioned on the room search page"]
+        status.append(f"{keyword}: {'YES ' + str(hits) if hits else 'no'}")
 
-    log(f"residences: {summary} | {TARGET}: {'YES ' + str(hits) if hits else 'no'}")
+        if hits and not seen.get(keyword):
+            send_email(
+                f"🚨 {name} is bookable on the KCL portal",
+                f"{name} just appeared in the King's Residences portal.\n\n"
+                + "\n".join(f"  • {h}" for h in hits)
+                + f"\n\nAll residences listed right now: {summary}\n\n"
+                "Book now: https://accommodation.kcl.ac.uk/ -> Book Your Room -> Next -> Next -> "
+                f"choose a {keyword} room type and Search.\n"
+                f"Checked at {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC.",
+            )
+            seen[keyword] = True
+        elif not hits and seen.get(keyword):
+            log(f"{name} no longer listed; will alert again if it reappears")
+            seen[keyword] = False
 
-    if hits and not state.get("target_seen"):
-        send_email(
-            f"🚨 {TARGET} Point is bookable on the KCL portal",
-            f"{TARGET} just appeared in the King's Residences portal.\n\n"
-            + "\n".join(f"  • {h}" for h in hits)
-            + f"\n\nAll residences listed right now: {summary}\n\n"
-            "Book now: https://accommodation.kcl.ac.uk/ -> Book Your Room -> Next -> Next -> "
-            f"choose a {TARGET} room type and Search.\n"
-            f"Checked at {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC.",
-        )
-        state["target_seen"] = True
-    elif not hits and state.get("target_seen"):
-        log(f"{TARGET} no longer listed; will alert again if it reappears")
-        state["target_seen"] = False
+    log(f"residences: {summary} | " + " | ".join(status))
 
     state["last_residences"] = residences
     save_state(state)
