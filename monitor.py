@@ -195,4 +195,25 @@ if __name__ == "__main__":
     if "--test-email" in sys.argv:
         send_email("KCL room monitor: test email", "If you can read this, alerts will reach you.")
         sys.exit(0)
+    if "--test-alert" in sys.argv:
+        # Full live check, then a TEST email showing what it saw. Does not touch state.
+        where = "GitHub cloud" if os.environ.get("GITHUB_ACTIONS") else "your Mac"
+        room_types, residences, body = scrape()
+        lines = [f"  • {n}: {c} rooms" for n, c in residences] or ["  (none listed)"]
+        watch = [
+            f"  • {name}: {'BOOKABLE NOW' if k.lower() in body.lower() else 'not listed yet'}"
+            for k, name in TARGETS.items()
+        ]
+        send_email(
+            f"TEST: KCL room monitor ({where}) is working",
+            f"This is a test from {where}. It logged into the King's Residences portal "
+            "and read the room search page just now.\n\n"
+            "Residences bookable right now:\n" + "\n".join(lines)
+            + "\n\nWatching for:\n" + "\n".join(watch)
+            + "\n\nA real alert looks like this, with the subject "
+            "'🚨 Moonraker Point is bookable on the KCL portal'.\n"
+            f"Checked at {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC.",
+        )
+        log(f"test alert sent from {where}: " + ", ".join(f"{n} ({c})" for n, c in residences))
+        sys.exit(0)
     sys.exit(main())

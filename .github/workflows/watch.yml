@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "*/10 * * * *"   # GitHub may delay scheduled runs by a few minutes
   workflow_dispatch:
+    inputs:
+      test_email:
+        description: "Send a test email with the live room list (no real alert, state untouched)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write   # to save cloud-state.json between runs
@@ -38,7 +43,7 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           ALERT_TO: ${{ secrets.ALERT_TO }}
           STATE_FILE: cloud-state.json
-        run: python monitor.py
+        run: python monitor.py ${{ inputs.test_email && '--test-alert' || '' }}
 
       - name: Save state
         if: always()
