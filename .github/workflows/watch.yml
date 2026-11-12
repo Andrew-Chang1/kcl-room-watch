@@ -1,8 +1,13 @@
 name: Watch KCL residences
 
+# Each run checks the portal, waits ~9 minutes, then starts the next run itself,
+# so it doesn't depend on GitHub's scheduler (which never fired for this repo).
+# The schedule stays only as a backup to restart the chain if it ever breaks.
+# To stop everything:  gh workflow disable watch.yml
+
 on:
   schedule:
-    - cron: "7,17,27,37,47,57 * * * *"   # off the round minutes, which GitHub often delays or drops
+    - cron: "7 */3 * * *"   # backup restart every 3 hours
   workflow_dispatch:
     inputs:
       test_email:
@@ -12,7 +17,9 @@ on:
 
 permissions:
   contents: write   # to save cloud-state.json between runs
+  actions: write    # to start the next run
 
+# At most one run going and one waiting; any extra copies of the chain get cancelled.
 concurrency:
   group: watch
   cancel-in-progress: false
@@ -20,7 +27,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -47,6 +54,7 @@ jobs:
 
       - name: Save state
         if: always()
+        continue-on-error: true
         run: |
           git config user.name "room-watch-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -54,3 +62,11 @@ jobs:
           git diff --cached --quiet && exit 0
           git commit -m "Update watch state [skip ci]"
           git pull --rebase -q && git push -q
+
+      - name: Wait, then start the next check
+        if: ${{ always() && !inputs.test_email }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sleep 540
+          gh workflow run watch.yml -R "$GITHUB_REPOSITORY" --ref main
