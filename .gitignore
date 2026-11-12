@@ -4,3 +4,4 @@ monitor.log
 launchd.*.log
 __pycache__/
 setup.sh
+history.json

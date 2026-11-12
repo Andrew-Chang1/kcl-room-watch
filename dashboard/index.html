@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>KCL Room Watch</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one column control-room sheet. Status first, then the timeline, the room chart, changes, and the raw check log. */
+:root {
+  color-scheme: light;
+  --bg: #f6f7f9; --panel: #ffffff; --line: #e3e6eb; --grid: #eceef2;
+  --ink: #12161c; --ink-2: #4c5562; --ink-3: #7c8594;
+  --accent: #2a4fd6;
+  --good: #15803d; --good-bg: #e7f5ec; --warn: #b45309; --warn-bg: #fdf1e2; --bad: #c62828; --bad-bg: #fbe9e9;
+  --hit: #0f9d58; --hit-bg: #d9f6e6;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #101317; --panel: #181c22; --line: #2a3039; --grid: #222830;
+    --ink: #eef1f5; --ink-2: #b3bcc8; --ink-3: #848e9c;
+    --accent: #7d9bff;
+    --good: #4ade80; --good-bg: #13291c; --warn: #fbbf24; --warn-bg: #2d2412; --bad: #f87171; --bad-bg: #2e1617;
+    --hit: #34d399; --hit-bg: #0f2e22;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300;
+  }
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body {
+  margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: max(20px, env(safe-area-inset-top, 0px)) 48px;
+}
+.wrap { max-width: 1040px; margin: 0 auto; display: grid; gap: 16px; }
+h1 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 13px; font-weight: 600; margin: 0; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-2); }
+.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 16px; }
+.sub { color: var(--ink-3); font-size: 13px; }
+.refresh { font: 12px var(--mono); color: var(--ink-3); display: flex; gap: 10px; align-items: center; }
+button { font: inherit; color: var(--ink-2); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+button:hover { border-color: var(--ink-3); color: var(--ink); }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0; display: grid; gap: 12px; }
+.panel-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+
+.targets { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.target { border-left: 4px solid var(--line); }
+.target.hit { border-left-color: var(--hit); background: var(--hit-bg); }
+.target .name { font-size: 18px; font-weight: 600; }
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; width: fit-content; }
+.pill.no { background: var(--grid); color: var(--ink-2); }
+.pill.yes { background: var(--hit); color: #fff; }
+.pill.good { background: var(--good-bg); color: var(--good); }
+.pill.warn { background: var(--warn-bg); color: var(--warn); }
+.pill.bad { background: var(--bad-bg); color: var(--bad); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.target p { margin: 0; color: var(--ink-2); font-size: 13px; }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.stat { background: var(--panel); padding: 12px 16px; display: grid; gap: 2px; min-width: 0; }
+.stat .k { font-size: 12px; color: var(--ink-3); }
+.stat .v { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat .d { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+.strip { display: flex; gap: 2px; height: 34px; align-items: stretch; overflow: hidden; }
+.tick { flex: 1 1 0; min-width: 2px; max-width: 14px; border-radius: 2px; background: var(--good); opacity: .85; position: relative; }
+.tick.fail { background: var(--bad); opacity: 1; }
+.tick.hit { background: var(--hit); opacity: 1; box-shadow: 0 0 0 1px var(--hit); }
+.tick.gap { background: transparent; border: 1px dashed var(--line); }
+.tick:hover { opacity: 1; outline: 2px solid var(--ink); outline-offset: 1px; }
+.axis { display: flex; justify-content: space-between; font: 11px var(--mono); color: var(--ink-3); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+.chart { position: relative; }
+.chart svg { width: 100%; height: 260px; display: block; overflow: visible; }
+.chart text { fill: var(--ink-3); font: 11px var(--mono); }
+.tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.12); min-width: 170px; z-index: 5; }
+.tip b { display: block; font-weight: 600; margin-bottom: 4px; }
+.tip .row { display: flex; justify-content: space-between; gap: 12px; font-variant-numeric: tabular-nums; }
+.tip .row span:first-child { display: inline-flex; gap: 6px; align-items: center; color: var(--ink-2); }
+
+.changes { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.changes li { display: grid; grid-template-columns: 150px 1fr; gap: 12px; padding: 8px 0; border-top: 1px solid var(--grid); font-size: 13px; }
+.changes li:first-child { border-top: 0; }
+.changes time { font: 12px var(--mono); color: var(--ink-3); padding-top: 1px; }
+.up { color: var(--good); } .down { color: var(--warn); }
+.empty { color: var(--ink-3); font-size: 13px; }
+
+.tablewrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 640px; }
+th { text-align: left; font-weight: 500; color: var(--ink-3); font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 7px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; font-variant-numeric: tabular-nums; }
+td.mono { font: 12px var(--mono); color: var(--ink-2); white-space: nowrap; }
+td a { color: var(--accent); text-decoration: none; } td a:hover { text-decoration: underline; }
+.err { color: var(--bad); font: 12px var(--mono); }
+.more { justify-self: start; }
+.foot { color: var(--ink-3); font-size: 12px; }
+.banner { padding: 12px 16px; border-radius: 10px; background: var(--bad-bg); color: var(--bad); font-size: 13px; }
+@media (max-width: 560px) { .changes li { grid-template-columns: 1fr; gap: 2px; } h1 { font-size: 20px; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>KCL Room Watch</h1>
+      <div class="sub">King's Residences portal · Self-assign, January 2027 bookings (Term 2+3, 9 Jan – 26 Jun 2027)</div>
+    </div>
+    <div class="refresh"><span id="updated">Loading…</span><button id="reload" type="button">Refresh</button></div>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <section class="targets" id="targets" aria-label="Residences being watched"></section>
+
+  <section class="stats" id="stats" aria-label="Watcher health"></section>
+
+  <section class="panel" aria-labelledby="h-timeline">
+    <div class="panel-head">
+      <h2 id="h-timeline">Every check</h2>
+      <div role="group" aria-label="Time range" id="ranges">
+        <button type="button" data-h="24" aria-pressed="true">24 h</button>
+        <button type="button" data-h="168" aria-pressed="false">7 days</button>
+        <button type="button" data-h="0" aria-pressed="false">All</button>
+      </div>
+    </div>
+    <div class="strip" id="strip"></div>
+    <div class="axis"><span id="ax-l"></span><span id="ax-r"></span></div>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--good)"></i>Checked, neither listed</span>
+      <span><i class="sw" style="background:var(--hit)"></i>Moonraker or Stamford listed</span>
+      <span><i class="sw" style="background:var(--bad)"></i>Check failed</span>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="h-chart">
+    <div class="panel-head"><h2 id="h-chart">Rooms available by residence</h2><div class="legend" id="chart-legend"></div></div>
+    <div class="chart" id="chart"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="h-changes">
+    <h2 id="h-changes">What changed</h2>
+    <ul class="changes" id="changes"></ul>
+  </section>
+
+  <section class="panel" aria-labelledby="h-log">
+    <h2 id="h-log">Check log</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Melbourne</th><th>London</th><th>Result</th><th>Moonraker</th><th>Stamford</th><th>Residences listed (rooms)</th><th>Log</th></tr></thead>
+      <tbody id="log"></tbody>
+    </table></div>
+    <button type="button" class="more" id="more">Show more</button>
+  </section>
+
+  <p class="foot">Runs in GitHub Actions about every 10 minutes and emails you the moment Moonraker Point or Stamford Street Apartments appears. This page reloads itself every 2 minutes. Times in Melbourne and London.</p>
+</div>
+
+<script>
+const REPO = "Andrew-Chang1/kcl-room-watch";
+const HIST_URL = `https://raw.githubusercontent.com/${REPO}/main/cloud-history.json`;
+const RUNS_URL = `https://api.github.com/repos/${REPO}/actions/workflows/watch.yml/runs?per_page=100`;
+const TARGETS = [["Moonraker", "Moonraker Point"], ["Stamford", "Stamford Street Apartments"]];
+const SERIES = ["--s1", "--s2", "--s3", "--s4", "--s5", "--s6"];
+const MEL = "Australia/Melbourne", LON = "Europe/London";
+
+let hist = [], runs = [], rangeH = 24, logShown = 40;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fmt = (d, tz, opt) => new Intl.DateTimeFormat("en-AU", { timeZone: tz, ...opt }).format(d);
+const when = (d, tz) => fmt(d, tz, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+const hm = (d, tz) => fmt(d, tz, { hour: "numeric", minute: "2-digit" });
+function ago(d) {
+  const m = Math.round((Date.now() - d) / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  return h < 48 ? `${h} h ${m % 60} min ago` : `${Math.floor(h / 24)} days ago`;
+}
+const cssVar = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+async function load() {
+  $("updated").textContent = "Refreshing…";
+  const errs = [];
+  const [h, r] = await Promise.allSettled([
+    fetch(HIST_URL + "?t=" + Date.now(), { cache: "no-store" }).then((x) => { if (!x.ok) throw new Error("history " + x.status); return x.json(); }),
+    fetch(RUNS_URL, { cache: "no-store" }).then((x) => { if (!x.ok) throw new Error("GitHub API " + x.status); return x.json(); }),
+  ]);
+  if (h.status === "fulfilled") hist = h.value.map((e) => ({ ...e, d: new Date(e.t) })).sort((a, b) => a.d - b.d);
+  else errs.push("Couldn't load the check history (" + h.reason.message + ").");
+  if (r.status === "fulfilled") runs = r.value.workflow_runs || [];
+  else errs.push("Couldn't reach GitHub for run status (" + r.reason.message + "). GitHub allows 60 lookups an hour per network, so this usually clears within the hour.");
+  $("banner").hidden = !errs.length;
+  $("banner").textContent = errs.join(" ");
+  render();
+  $("updated").textContent = "Updated " + hm(new Date(), MEL);
+}
+
+// Merge: one row per check. Runs that crashed before writing history still show as failures.
+function rows() {
+  const byRun = new Map(hist.filter((e) => e.run).map((e) => [e.run, e]));
+  const out = hist.map((e) => ({ d: e.d, ok: e.ok, res: e.res || {}, hits: e.hits || [], err: e.err, run: e.run }));
+  for (const r of runs) {
+    if (byRun.has(r.id)) continue;
+    if (r.status !== "completed") continue;
+    if (r.conclusion === "failure" || r.conclusion === "timed_out")
+      out.push({ d: new Date(r.run_started_at || r.created_at), ok: false, res: {}, hits: [], err: "Run failed before the check finished", run: r.id });
+  }
+  return out.sort((a, b) => a.d - b.d);
+}
+
+function render() {
+  const all = rows();
+  const ok = all.filter((x) => x.ok);
+  const last = all[all.length - 1], lastOk = ok[ok.length - 1];
+
+  // Target cards
+  $("targets").innerHTML = TARGETS.map(([k, name]) => {
+    const live = lastOk && lastOk.hits.includes(k);
+    const firstHit = ok.find((x) => x.hits.includes(k));
+    const rooms = live ? Object.entries(lastOk.res).find(([n]) => n.toLowerCase().includes(k.toLowerCase())) : null;
+    return `<div class="panel target ${live ? "hit" : ""}">
+      <div class="name">${name}</div>
+      <span class="pill ${live ? "yes" : "no"}"><i class="dot"></i>${live ? "Bookable now" : "Not listed yet"}</span>
+      <p>${live
+        ? `${rooms ? rooms[1] + " rooms listed. " : ""}Book now: accommodation.kcl.ac.uk → Book Your Room → Next → Next.`
+        : firstHit ? `Last listed ${when(firstHit.d, MEL)}.` : `Not seen in ${ok.length.toLocaleString()} checks since ${ok[0] ? when(ok[0].d, MEL) : "—"}.`}</p>
+    </div>`;
+  }).join("");
+
+  // Health stats
+  const active = runs.find((r) => r.status !== "completed");
+  const latestRun = runs[0];
+  const lastAt = last ? last.d : null;
+  const age = lastAt ? (Date.now() - lastAt) / 60000 : Infinity;
+  let state, cls;
+  if (age < 16 || (active && age < 30)) { state = "Running"; cls = "good"; }
+  else if (age < 40) { state = "Running late"; cls = "warn"; }
+  else { state = "Stopped"; cls = "bad"; }
+  if (last && !last.ok && state === "Running") { state = "Last check failed"; cls = "warn"; }
+  const day = all.filter((x) => Date.now() - x.d < 864e5);
+  const dayOk = day.filter((x) => x.ok).length;
+  const next = lastAt ? new Date(lastAt.getTime() + 10 * 60000) : null;
+  const total = lastOk ? Object.values(lastOk.res).reduce((a, b) => a + b, 0) : 0;
+  $("stats").innerHTML = [
+    ["Watcher", `<span class="pill ${cls}"><i class="dot"></i>${state}</span>`, active ? "A check is running now" : latestRun ? "Chain restarts itself after each check" : ""],
+    ["Last check", lastAt ? ago(lastAt) : "—", lastAt ? `${hm(lastAt, MEL)} Melbourne · ${hm(lastAt, LON)} London` : ""],
+    ["Next check due", next ? (next > Date.now() ? "in " + Math.max(1, Math.round((next - Date.now()) / 60000)) + " min" : "any moment") : "—", next ? `around ${hm(next, MEL)} Melbourne` : ""],
+    ["Last 24 hours", `${dayOk} / ${day.length} ok`, day.length ? `${Math.round((dayOk / day.length) * 100)}% of checks succeeded` : ""],
+    ["Rooms on offer now", lastOk ? `${total}` : "—", lastOk ? `across ${Object.keys(lastOk.res).length} residences` : ""],
+  ].map(([k, v, d]) => `<div class="stat"><span class="k">${k}</span><span class="v">${v}</span><span class="d">${d}</span></div>`).join("");
+
+  renderStrip(all);
+  renderChart(ok);
+  renderChanges(ok);
+  renderLog(all);
+}
+
+function inRange(list) {
+  if (!rangeH) return list;
+  const from = Date.now() - rangeH * 36e5;
+  return list.filter((x) => x.d >= from);
+}
+
+function renderStrip(all) {
+  let list = inRange(all);
+  // Too many ticks for the width: bucket them, keeping the worst outcome in each bucket.
+  const maxTicks = Math.max(24, Math.floor($("strip").clientWidth / 6));
+  let ticks = list.map((x) => [x]);
+  if (list.length > maxTicks) {
+    const size = Math.ceil(list.length / maxTicks);
+    ticks = [];
+    for (let i = 0; i < list.length; i += size) ticks.push(list.slice(i, i + size));
+  }
+  $("strip").innerHTML = ticks.length ? ticks.map((g) => {
+    const fails = g.filter((x) => !x.ok).length, hit = g.some((x) => x.hits.length);
+    const c = hit ? "hit" : fails ? "fail" : "";
+    const label = g.length === 1
+      ? `${when(g[0].d, MEL)}: ${g[0].ok ? (hit ? "target listed" : "ok, neither listed") : "failed"}`
+      : `${when(g[0].d, MEL)} – ${hm(g[g.length - 1].d, MEL)}: ${g.length} checks, ${fails} failed${hit ? ", target listed" : ""}`;
+    return `<i class="tick ${c}" title="${esc(label)}" aria-label="${esc(label)}"></i>`;
+  }).join("") : `<span class="empty">No checks in this range yet.</span>`;
+  $("ax-l").textContent = list[0] ? when(list[0].d, MEL) : "";
+  $("ax-r").textContent = list.length ? when(list[list.length - 1].d, MEL) : "";
+}
+
+function renderChart(ok) {
+  const list = inRange(ok);
+  const box = $("chart");
+  if (list.length < 1) { box.innerHTML = `<p class="empty">No successful checks in this range yet.</p>`; $("chart-legend").innerHTML = ""; return; }
+  // Stable colour per residence: order of first appearance across the whole history.
+  const names = [];
+  for (const e of ok) for (const n of Object.keys(e.res)) if (!names.includes(n)) names.push(n);
+  const color = (n) => cssVar(SERIES[names.indexOf(n) % SERIES.length]);
+  const shown = names.filter((n) => list.some((e) => n in e.res));
+
+  const W = Math.max(320, box.clientWidth), H = 260, L = 34, R = 110, T = 12, B = 26;
+  const x0 = list[0].d.getTime(), x1 = Math.max(list[list.length - 1].d.getTime(), x0 + 36e5);
+  let ymax = 0;
+  for (const e of list) for (const v of Object.values(e.res)) ymax = Math.max(ymax, v);
+  const step = ymax > 40 ? 10 : 5; ymax = Math.max(step, Math.ceil((ymax + 1) / step) * step);
+  const sx = (t) => L + ((t - x0) / (x1 - x0)) * (W - L - R);
+  const sy = (v) => T + (1 - v / ymax) * (H - T - B);
+
+  let g = "";
+  for (let v = 0; v <= ymax; v += step) g += `<line x1="${L}" x2="${W - R}" y1="${sy(v)}" y2="${sy(v)}" stroke="${cssVar("--grid")}" stroke-width="1"/><text x="${L - 6}" y="${sy(v) + 4}" text-anchor="end">${v}</text>`;
+  const spanH = (x1 - x0) / 36e5, nT = Math.min(6, Math.max(2, Math.floor((W - L - R) / 110)));
+  for (let i = 0; i <= nT; i++) {
+    const t = x0 + ((x1 - x0) * i) / nT, d = new Date(t);
+    const lab = spanH <= 30 ? hm(d, MEL) : fmt(d, MEL, { day: "numeric", month: "short" });
+    g += `<text x="${sx(t)}" y="${H - 6}" text-anchor="${i === 0 ? "start" : i === nT ? "end" : "middle"}">${lab}</text>`;
+  }
+  let lines = "", labels = [];
+  for (const n of shown) {
+    let p = "", prev = null;
+    for (const e of list) {
+      if (!(n in e.res)) { prev = null; continue; }
+      const X = sx(e.d.getTime()).toFixed(1), Y = sy(e.res[n]).toFixed(1);
+      p += prev === null ? `M${X},${Y}` : `H${X}V${Y}`;
+      prev = Y;
+    }
+    const lastE = [...list].reverse().find((e) => n in e.res);
+    lines += `<path d="${p}" fill="none" stroke="${color(n)}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    if (lastE) {
+      const X = sx(lastE.d.getTime()), Y = sy(lastE.res[n]);
+      lines += `<circle cx="${X}" cy="${Y}" r="4" fill="${color(n)}" stroke="${cssVar("--panel")}" stroke-width="2"/>`;
+      labels.push({ n, y: Y, v: lastE.res[n] });
+    }
+  }
+  // Direct labels at the right edge, nudged apart so they never overlap.
+  labels.sort((a, b) => a.y - b.y);
+  for (let i = 1; i < labels.length; i++) if (labels[i].y - labels[i - 1].y < 13) labels[i].y = labels[i - 1].y + 13;
+  const lab = labels.map((l) => `<text x="${W - R + 10}" y="${l.y + 4}" style="fill:${cssVar("--ink-2")}">${esc(l.n)} ${l.v}</text>`).join("");
+
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Rooms available per residence over time">${g}${lines}${lab}
+    <line id="xh" y1="${T}" y2="${H - B}" stroke="${cssVar("--ink-3")}" stroke-dasharray="3 3" visibility="hidden"/>
+    <rect id="hit" x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent"/></svg><div class="tip" id="tip" hidden></div>`;
+  $("chart-legend").innerHTML = shown.map((n) => `<span><i class="sw" style="background:${color(n)}"></i>${esc(n)}</span>`).join("");
+
+  const svg = box.querySelector("svg"), tip = $("tip"), xh = $("xh");
+  const move = (ev) => {
+    const r = svg.getBoundingClientRect();
+    const px = ((ev.clientX - r.left) / r.width) * W;
+    const t = x0 + ((px - L) / (W - L - R)) * (x1 - x0);
+    let best = list[0];
+    for (const e of list) if (Math.abs(e.d - t) < Math.abs(best.d - t)) best = e;
+    const X = sx(best.d.getTime());
+    xh.setAttribute("x1", X); xh.setAttribute("x2", X); xh.setAttribute("visibility", "visible");
+    tip.innerHTML = `<b>${when(best.d, MEL)}</b>` + Object.entries(best.res).sort((a, b) => b[1] - a[1])
+      .map(([n, v]) => `<div class="row"><span><i class="sw" style="background:${color(n)}"></i>${esc(n)}</span><span>${v}</span></div>`).join("");
+    tip.hidden = false;
+    const left = (X / W) * r.width;
+    tip.style.left = Math.min(Math.max(0, left + 12), r.width - tip.offsetWidth) + "px";
+    tip.style.top = "8px";
+  };
+  svg.addEventListener("pointermove", move);
+  svg.addEventListener("pointerleave", () => { tip.hidden = true; xh.setAttribute("visibility", "hidden"); });
+}
+
+function renderChanges(ok) {
+  const ev = [];
+  for (let i = 1; i < ok.length; i++) {
+    const a = ok[i - 1].res, b = ok[i].res, parts = [];
+    for (const n of Object.keys(b)) {
+      if (!(n in a)) parts.push(`<b class="up">${esc(n)}</b> appeared with ${b[n]} rooms`);
+      else if (a[n] !== b[n]) parts.push(`${esc(n)} <span class="${b[n] > a[n] ? "up" : "down"}">${a[n]} → ${b[n]}</span>`);
+    }
+    for (const n of Object.keys(a)) if (!(n in b)) parts.push(`<b class="down">${esc(n)}</b> disappeared`);
+    if (parts.length) ev.push({ d: ok[i].d, html: parts.join(" · ") });
+  }
+  const recent = ev.reverse().slice(0, 30);
+  $("changes").innerHTML = recent.length
+    ? recent.map((e) => `<li><time>${when(e.d, MEL)}</time><span>${e.html}</span></li>`).join("")
+    : `<li class="empty">No changes since ${ok[0] ? when(ok[0].d, MEL) : "the first check"}. The same residences and room counts every time.</li>`;
+}
+
+function renderLog(all) {
+  const list = [...all].reverse();
+  $("log").innerHTML = list.slice(0, logShown).map((x) => {
+    const res = Object.entries(x.res).map(([n, c]) => `${esc(n)} (${c})`).join(", ");
+    const t = (k) => x.ok ? (x.hits.includes(k) ? `<span class="pill yes">Listed</span>` : `<span class="sub">No</span>`) : "";
+    return `<tr>
+      <td class="mono">${when(x.d, MEL)}</td><td class="mono">${hm(x.d, LON)}</td>
+      <td>${x.ok ? `<span class="pill good"><i class="dot"></i>OK</span>` : `<span class="pill bad"><i class="dot"></i>Failed</span>`}</td>
+      <td>${t("Moonraker")}</td><td>${t("Stamford")}</td>
+      <td>${x.ok ? res || "<span class='sub'>none listed</span>" : `<span class="err">${esc(x.err || "")}</span>`}</td>
+      <td>${x.run ? `<a href="https://github.com/${REPO}/actions/runs/${x.run}" target="_blank" rel="noopener">View</a>` : ""}</td></tr>`;
+  }).join("");
+  $("more").hidden = list.length <= logShown;
+}
+
+$("ranges").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  rangeH = +b.dataset.h;
+  for (const x of $("ranges").children) x.setAttribute("aria-pressed", x === b);
+  render();
+});
+$("more").addEventListener("click", () => { logShown += 100; render(); });
+$("reload").addEventListener("click", load);
+let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(render, 150); });
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+load();
+setInterval(load, 120000);
+</script>
+</body>
+</html>

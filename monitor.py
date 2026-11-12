@@ -30,6 +30,9 @@ for key, env in [("kcl_id", "KCL_ID"), ("gmail_address", "GMAIL_ADDRESS"), ("ale
         CONFIG[key] = os.environ[env]
 STATE_FILE = HERE / os.environ.get("STATE_FILE", "state.json")
 LOG_FILE = HERE / "monitor.log"
+# One line per check, read by the dashboard. Holds only residence names, counts and pass/fail.
+HISTORY_FILE = HERE / os.environ.get("HISTORY_FILE", "history.json")
+HISTORY_KEEP = 5000  # about 5 weeks at one check every 10 minutes
 
 PORTAL = "https://accommodation.kcl.ac.uk/"
 # keyword to match in the portal -> name used in the alert email
@@ -79,6 +82,23 @@ def load_state():
 
 def save_state(state):
     STATE_FILE.write_text(json.dumps(state, indent=2))
+
+
+def record(ok, residences=None, hits=None, err=None):
+    try:
+        hist = json.loads(HISTORY_FILE.read_text())
+    except Exception:
+        hist = []
+    entry = {"t": f"{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ}", "ok": ok}
+    if os.environ.get("GITHUB_RUN_ID"):
+        entry["run"] = int(os.environ["GITHUB_RUN_ID"])
+    if ok:
+        entry["res"] = {n: c for n, c in residences}
+        entry["hits"] = hits
+    else:
+        entry["err"] = (err or "")[:160]
+    hist.append(entry)
+    HISTORY_FILE.write_text(json.dumps(hist[-HISTORY_KEEP:], separators=(",", ":")))
 
 
 def scrape():
@@ -152,6 +172,8 @@ def main():
                 state["fail_alerted"] = True
             except Exception as mail_err:
                 log(f"could not send failure email: {mail_err!r}")
+        # Keep only the error type and first line so nothing personal can land in the public file.
+        record(False, err=f"{type(e).__name__}: {str(e).splitlines()[0] if str(e) else ''}")
         save_state(state)
         return 1
 
@@ -160,6 +182,7 @@ def main():
     summary = ", ".join(f"{n} ({c})" for n, c in residences) or "none listed"
     seen = state.setdefault("seen", {})
     status = []
+    found = []
     for keyword, name in TARGETS.items():
         k = keyword.lower()
         hits = [t for t in room_types if k in t.lower()] + [
@@ -168,6 +191,8 @@ def main():
         if not hits and k in body.lower():
             hits = [f"'{keyword}' mentioned on the room search page"]
         status.append(f"{keyword}: {'YES ' + str(hits) if hits else 'no'}")
+        if hits:
+            found.append(keyword)
 
         if hits and not seen.get(keyword):
             send_email(
@@ -186,6 +211,7 @@ def main():
 
     log(f"residences: {summary} | " + " | ".join(status))
 
+    record(True, residences, found)
     state["last_residences"] = residences
     save_state(state)
     return 0
