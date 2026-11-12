@@ -2,7 +2,7 @@ name: Watch KCL residences
 
 on:
   schedule:
-    - cron: "*/10 * * * *"   # GitHub may delay scheduled runs by a few minutes
+    - cron: "7,17,27,37,47,57 * * * *"   # off the round minutes, which GitHub often delays or drops
   workflow_dispatch:
     inputs:
       test_email:
