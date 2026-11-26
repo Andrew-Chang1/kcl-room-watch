@@ -3,7 +3,7 @@
   "failures": 0,
   "fail_alerted": false,
   "seen": {
-    "Stamford": true
+    "Stamford": false
   },
   "last_residences": [
     [
@@ -21,10 +21,6 @@
     [
       "Canada Water",
       17
-    ],
-    [
-      "Stamford Street Apartments",
-      1
     ]
   ]
 }
